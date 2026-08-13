@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const title = "拼豆稿｜图片转拼豆像素画";
-const description = "上传图片，匹配 MARD 221 色号，生成带行列号、逐格色号和用量清单的拼豆图纸。";
+const title = "拼豆稿｜MARD 拼豆设计与制作工具";
+const description = "图片转 MARD 拼豆图，支持手动精修、库存与缺色替代、制作进度、本地项目以及 A4 分页 PDF。";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -35,7 +35,7 @@ export async function generateMetadata(): Promise<Metadata> {
       locale: "zh_CN",
       title,
       description,
-      images: [{ url: imageUrl, width: 1728, height: 900, alt: "拼豆稿像素画工具" }],
+      images: [{ url: imageUrl, width: 1738, height: 905, alt: "拼豆稿 MARD 拼豆设计与制作工具" }],
     },
     twitter: {
       card: "summary_large_image",
