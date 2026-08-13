@@ -14,7 +14,7 @@
 
 ## 在线使用
 
-[直接打开拼豆稿](https://pindou-studio.mingzhe330.chatgpt.site)
+[直接打开拼豆稿（GitHub Pages）](https://earnbabysol.github.io/pindou-studio/)
 
 无需安装，上传的图片只在当前浏览器中处理。
 

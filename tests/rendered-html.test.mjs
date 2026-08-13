@@ -61,3 +61,16 @@ test("ships the pixel conversion engine and social preview", async () => {
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
   await access(projectRoot);
 });
+
+test("builds a self-contained GitHub Pages entry", async () => {
+  const staticHtml = await readFile(
+    new URL("../dist-pages/index.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(staticHtml, /<title>拼豆稿｜图片转拼豆像素画<\/title>/);
+  assert.match(staticHtml, /\/pindou-studio\/assets\/[^"']+\.js/);
+  assert.match(staticHtml, /\/pindou-studio\/assets\/[^"']+\.css/);
+  assert.doesNotMatch(staticHtml, /chatgpt\.site/);
+  await access(new URL("../dist-pages/og.png", import.meta.url));
+});
