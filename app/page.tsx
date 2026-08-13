@@ -22,8 +22,6 @@ type SourceImage = {
   height: number;
 };
 
-const colorCode = (index: number) => `C${String(index + 1).padStart(2, "0")}`;
-
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -33,6 +31,28 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function beadLabelColor(r: number, g: number, b: number) {
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 158 ? "rgba(20, 20, 18, 0.88)" : "rgba(255, 255, 255, 0.94)";
+}
+
+function drawBeadCode(
+  context: CanvasRenderingContext2D,
+  code: string,
+  color: { r: number; g: number; b: number },
+  x: number,
+  y: number,
+  cell: number,
+) {
+  context.save();
+  context.fillStyle = beadLabelColor(color.r, color.g, color.b);
+  context.font = `800 ${Math.max(4, Math.floor(cell * 0.42))}px Arial, sans-serif`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(code, x + cell / 2, y + cell / 2 + 0.4, cell - 2);
+  context.restore();
+}
+
 function drawPattern(
   canvas: HTMLCanvasElement,
   boardSize: BoardSize,
@@ -40,6 +60,7 @@ function drawPattern(
   targetWidth: number,
   targetHeight: number,
   showGrid: boolean,
+  showBeadCodes: boolean,
 ) {
   const cell = boardSize === 104 ? 9 : 13;
   const size = boardSize * cell;
@@ -69,6 +90,16 @@ function drawPattern(
         if (label >= 0) {
           context.fillStyle = result.palette[label].hex;
           context.fillRect(x * cell, y * cell, cell, cell);
+          if (showBeadCodes) {
+            drawBeadCode(
+              context,
+              result.palette[label].code,
+              result.palette[label],
+              x * cell,
+              y * cell,
+              cell,
+            );
+          }
           filled = true;
         }
       }
@@ -119,6 +150,159 @@ function drawPattern(
   context.restore();
 }
 
+function drawPatternSheet(
+  canvas: HTMLCanvasElement,
+  boardSize: BoardSize,
+  result: PixelResult,
+  targetWidth: number,
+  targetHeight: number,
+  showBeadCodes: boolean,
+) {
+  const cell = boardSize === 104 ? 24 : 30;
+  const boardPixels = boardSize * cell;
+  const outerMargin = 54;
+  const coordinateBand = 38;
+  const headerHeight = 96;
+  const boardX = outerMargin + coordinateBand;
+  const boardY = headerHeight + coordinateBand;
+  const legendColumns = Math.min(6, Math.max(1, result.palette.length));
+  const legendRows = Math.ceil(result.palette.length / legendColumns);
+  const legendTop = boardY + boardPixels + coordinateBand + 72;
+  const legendHeaderHeight = 66;
+  const legendRowHeight = 56;
+  canvas.width = boardX + boardPixels + coordinateBand + outerMargin;
+  canvas.height = legendTop + legendHeaderHeight + legendRows * legendRowHeight + 58;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.fillStyle = "#FFFDF8";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#1D1D1B";
+  context.font = "800 32px Arial, sans-serif";
+  context.textAlign = "left";
+  context.textBaseline = "alphabetic";
+  context.fillText("MARD 拼豆图纸", outerMargin, 43);
+  context.fillStyle = "#66635C";
+  context.font = "600 16px Arial, sans-serif";
+  context.fillText(
+    `${boardSize} × ${boardSize} 底板  ·  ${targetWidth} × ${targetHeight} 画面  ·  ${result.palette.length} 色  ·  ${result.beadCount.toLocaleString("zh-CN")} 颗`,
+    outerMargin,
+    72,
+  );
+  context.textAlign = "right";
+  context.fillText(showBeadCodes ? "逐格色号：已标注" : "逐格色号：未标注", canvas.width - outerMargin, 72);
+
+  const offsetX = Math.floor((boardSize - targetWidth) / 2);
+  const offsetY = Math.floor((boardSize - targetHeight) / 2);
+  for (let y = 0; y < boardSize; y += 1) {
+    for (let x = 0; x < boardSize; x += 1) {
+      const localX = x - offsetX;
+      const localY = y - offsetY;
+      const inside = localX >= 0 && localX < targetWidth && localY >= 0 && localY < targetHeight;
+      const pixelX = boardX + x * cell;
+      const pixelY = boardY + y * cell;
+      context.fillStyle = inside ? "#FAF7F0" : "#F0ECE3";
+      context.fillRect(pixelX, pixelY, cell, cell);
+
+      if (!inside) continue;
+      const label = result.labels[localY * result.width + localX];
+      if (label < 0) continue;
+      const color = result.palette[label];
+      context.fillStyle = color.hex;
+      context.fillRect(pixelX, pixelY, cell, cell);
+      if (showBeadCodes) drawBeadCode(context, color.code, color, pixelX, pixelY, cell);
+    }
+  }
+
+  for (let index = 0; index <= boardSize; index += 1) {
+    const position = index * cell;
+    const major = index % 10 === 0;
+    context.strokeStyle = major ? "rgba(29, 29, 27, 0.52)" : "rgba(29, 29, 27, 0.18)";
+    context.lineWidth = major ? 1.8 : 0.8;
+    context.beginPath();
+    context.moveTo(boardX + position, boardY);
+    context.lineTo(boardX + position, boardY + boardPixels);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(boardX, boardY + position);
+    context.lineTo(boardX + boardPixels, boardY + position);
+    context.stroke();
+  }
+
+  context.save();
+  context.strokeStyle = "#F05C3E";
+  context.lineWidth = 3;
+  context.setLineDash([12, 8]);
+  context.strokeRect(
+    boardX + offsetX * cell + 1.5,
+    boardY + offsetY * cell + 1.5,
+    targetWidth * cell - 3,
+    targetHeight * cell - 3,
+  );
+  context.restore();
+
+  context.fillStyle = "#4E4C47";
+  context.font = `700 ${boardSize === 104 ? 10 : 12}px Arial, sans-serif`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  for (let index = 0; index < boardSize; index += 1) {
+    const label = String(index + 1);
+    const centerX = boardX + index * cell + cell / 2;
+    const centerY = boardY + index * cell + cell / 2;
+    context.fillText(label, centerX, boardY - coordinateBand / 2);
+    context.fillText(label, centerX, boardY + boardPixels + coordinateBand / 2);
+    context.fillText(label, boardX - coordinateBand / 2, centerY);
+    context.fillText(label, boardX + boardPixels + coordinateBand / 2, centerY);
+  }
+
+  context.fillStyle = "#1D1D1B";
+  context.font = "800 23px Arial, sans-serif";
+  context.textAlign = "left";
+  context.fillText("MARD 色号与用量", outerMargin, legendTop + 26);
+  context.fillStyle = "#74716A";
+  context.font = "600 14px Arial, sans-serif";
+  context.fillText(
+    `共 ${result.palette.length} 个色号 · 合计 ${result.beadCount.toLocaleString("zh-CN")} 颗`,
+    outerMargin,
+    legendTop + 52,
+  );
+  context.strokeStyle = "#D8D3C8";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(outerMargin, legendTop + legendHeaderHeight - 4);
+  context.lineTo(canvas.width - outerMargin, legendTop + legendHeaderHeight - 4);
+  context.stroke();
+
+  const legendWidth = canvas.width - outerMargin * 2;
+  const itemWidth = legendWidth / legendColumns;
+  result.palette.forEach((color, index) => {
+    const column = index % legendColumns;
+    const row = Math.floor(index / legendColumns);
+    const itemX = outerMargin + column * itemWidth;
+    const itemY = legendTop + legendHeaderHeight + row * legendRowHeight;
+    context.fillStyle = color.hex;
+    context.fillRect(itemX, itemY + 11, 32, 32);
+    context.strokeStyle = "rgba(29, 29, 27, 0.24)";
+    context.strokeRect(itemX + 0.5, itemY + 11.5, 31, 31);
+    context.fillStyle = "#1D1D1B";
+    context.font = "800 17px Arial, sans-serif";
+    context.textAlign = "left";
+    context.fillText(color.code, itemX + 43, itemY + 22);
+    context.fillStyle = "#74716A";
+    context.font = "600 13px Arial, sans-serif";
+    context.fillText(`${color.count.toLocaleString("zh-CN")} 颗`, itemX + 43, itemY + 41);
+  });
+
+  context.fillStyle = "#8B8880";
+  context.font = "500 12px Arial, sans-serif";
+  context.textAlign = "left";
+  context.fillText(
+    "色块为 MARD 221 色卡屏幕近似值；购买与制作请以 MARD 色号为准。",
+    outerMargin,
+    canvas.height - 24,
+  );
+}
+
 export default function Home() {
   const [boardSize, setBoardSize] = useState<BoardSize>(104);
   const [targetWidth, setTargetWidth] = useState(90);
@@ -128,6 +312,7 @@ export default function Home() {
   const [cleanupStrength, setCleanupStrength] = useState(2);
   const [fitMode, setFitMode] = useState<FitMode>("cover");
   const [showGrid, setShowGrid] = useState(true);
+  const [showBeadCodes, setShowBeadCodes] = useState(true);
   const [source, setSource] = useState<SourceImage | null>(null);
   const [result, setResult] = useState<PixelResult | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -271,8 +456,9 @@ export default function Home() {
       targetWidth,
       targetHeight,
       showGrid,
+      showBeadCodes,
     );
-  }, [boardSize, result, showGrid, targetHeight, targetWidth]);
+  }, [boardSize, result, showBeadCodes, showGrid, targetHeight, targetWidth]);
 
   const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -325,34 +511,33 @@ export default function Home() {
     context.putImageData(imageData, 0, 0);
     canvas.toBlob((blob) => {
       if (!blob) return;
-      downloadBlob(blob, `pindou-${result.width}x${result.height}-${result.palette.length}colors.png`);
-      flash("已下载原始像素图");
+      downloadBlob(blob, `pindou-MARD-${result.width}x${result.height}-${result.palette.length}colors.png`);
+      flash("已下载 MARD 纯像素图");
     }, "image/png");
   };
 
   const downloadBoard = () => {
     if (!result) return;
     const canvas = document.createElement("canvas");
-    drawPattern(canvas, boardSize, result, targetWidth, targetHeight, true);
+    drawPatternSheet(canvas, boardSize, result, targetWidth, targetHeight, showBeadCodes);
     canvas.toBlob((blob) => {
       if (!blob) return;
-      downloadBlob(blob, `pindou-board-${boardSize}-${targetWidth}x${targetHeight}.png`);
-      flash("已下载带网格底板图");
+      const codeMode = showBeadCodes ? "with-codes" : "colors-only";
+      downloadBlob(blob, `pindou-MARD-sheet-${boardSize}-${targetWidth}x${targetHeight}-${codeMode}.png`);
+      flash("已下载 MARD 拼豆图纸");
     }, "image/png");
   };
 
   const downloadInventory = () => {
     if (!result) return;
     const lines = [
-      "色号,HEX,数量",
-      ...result.palette.map(
-        (color, index) => `${colorCode(index)},${color.hex},${color.count}`,
-      ),
-      `合计,,${result.beadCount}`,
+      "MARD色号,数量（颗）",
+      ...result.palette.map((color) => `${color.code},${color.count}`),
+      `合计,${result.beadCount}`,
     ];
     downloadBlob(
       new Blob(["\uFEFF", lines.join("\n")], { type: "text/csv;charset=utf-8" }),
-      `pindou-colors-${targetWidth}x${targetHeight}.csv`,
+      `pindou-MARD-colors-${targetWidth}x${targetHeight}.csv`,
     );
     flash("已下载配色用量表");
   };
@@ -383,10 +568,10 @@ export default function Home() {
         </div>
         <div className="topbar-actions">
           <button className="button button-secondary" onClick={downloadPixelArt} disabled={!result}>
-            像素 PNG
+            纯像素 PNG
           </button>
           <button className="button button-primary" onClick={downloadBoard} disabled={!result}>
-            下载拼豆图
+            下载 MARD 图纸
           </button>
         </div>
       </header>
@@ -537,7 +722,7 @@ export default function Home() {
               <span className="step-number">03</span>
               <div>
                 <h2>清理颜色</h2>
-                <p>限制色数并消除孤立杂色</p>
+                <p>匹配 MARD 221 色卡并消除杂色</p>
               </div>
             </div>
 
@@ -571,6 +756,27 @@ export default function Home() {
                 onChange={(event) => setCleanupStrength(Number(event.target.value))}
               />
               <div className="range-labels"><span>保留细节</span><span>去除杂色</span></div>
+            </div>
+
+            <div className="field-group annotation-field">
+              <label>逐格 MARD 色号</label>
+              <div className="segmented-control">
+                <button
+                  className={showBeadCodes ? "active" : ""}
+                  onClick={() => setShowBeadCodes(true)}
+                  aria-pressed={showBeadCodes}
+                >
+                  标注色号
+                </button>
+                <button
+                  className={!showBeadCodes ? "active" : ""}
+                  onClick={() => setShowBeadCodes(false)}
+                  aria-pressed={!showBeadCodes}
+                >
+                  仅显示颜色
+                </button>
+              </div>
+              <p className="field-hint">控制预览与图纸中每一颗豆是否印出对应色号。</p>
             </div>
           </section>
         </aside>
@@ -622,7 +828,7 @@ export default function Home() {
               <strong>X {centeredOffset.x} · Y {centeredOffset.y}</strong>
             </div>
             <div className="summary-accent">
-              <span>实际颜色</span>
+              <span>MARD 色号</span>
               <strong>{result ? result.palette.length : "—"} / {maxColors}</strong>
             </div>
           </div>
@@ -635,20 +841,20 @@ export default function Home() {
           <div className="palette-heading">
             <div>
               <p className="eyebrow">COLOR MAP</p>
-              <h2>颜色用量</h2>
+              <h2>MARD 色号用量</h2>
             </div>
-            <span className="palette-count">{result?.palette.length ?? 0} 色</span>
+            <span className="palette-count">MARD 221 · {result?.palette.length ?? 0} 色</span>
           </div>
 
           {result && result.palette.length ? (
             <div className="palette-list">
-              {result.palette.map((color, index) => (
-                <div className="palette-row" key={`${color.hex}-${index}`}>
+              {result.palette.map((color) => (
+                <div className="palette-row" key={color.code}>
                   <span className="color-swatch" style={{ backgroundColor: color.hex }}>
-                    {colorCode(index)}
+                    {color.code}
                   </span>
                   <div className="color-meta">
-                    <strong>{color.hex}</strong>
+                    <strong>MARD {color.code}</strong>
                     <span>{((color.count / result.beadCount) * 100).toFixed(1)}%</span>
                   </div>
                   <div className="bead-count"><strong>{color.count.toLocaleString("zh-CN")}</strong><span>颗</span></div>
@@ -660,8 +866,8 @@ export default function Home() {
               <div className="empty-swatches" aria-hidden="true">
                 <span /><span /><span /><span /><span />
               </div>
-              <strong>颜色会出现在这里</strong>
-              <p>上传图片后，将列出每种颜色和所需豆数。</p>
+              <strong>MARD 色号会出现在这里</strong>
+              <p>上传图片后，将列出实际采用的 MARD 色号和所需豆数。</p>
             </div>
           )}
 
@@ -675,17 +881,17 @@ export default function Home() {
 
           <div className="export-stack">
             <button className="button button-primary full-button" onClick={downloadBoard} disabled={!result}>
-              下载带网格拼豆图
+              下载 MARD 拼豆图纸
             </button>
             <button className="button button-secondary full-button" onClick={downloadPixelArt} disabled={!result}>
-              下载 {targetWidth} × {targetHeight} 原图
+              下载 {targetWidth} × {targetHeight} 纯像素图
             </button>
             <button className="text-export" onClick={downloadInventory} disabled={!result}>
               导出配色用量表 CSV <span>↗</span>
             </button>
           </div>
 
-          <p className="panel-footnote">红色虚线为成品边界；底板外留空区域不计入豆数。</p>
+          <p className="panel-footnote">图纸包含四边行列号和底部 MARD 色号用量；屏幕颜色仅作近似预览，制作请以色号为准。</p>
         </aside>
       </div>
 

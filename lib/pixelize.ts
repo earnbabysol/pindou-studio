@@ -1,4 +1,7 @@
+import { MARD_221 } from "./mard-palette";
+
 export type PaletteColor = {
+  code: string;
   r: number;
   g: number;
   b: number;
@@ -16,6 +19,14 @@ export type PixelResult = {
 
 type Lab = { l: number; a: number; b: number };
 type Sample = Lab & { weight: number };
+type MardLabColor = {
+  code: string;
+  hex: string;
+  r: number;
+  g: number;
+  b: number;
+  lab: Lab;
+};
 
 const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
 
@@ -46,36 +57,30 @@ function rgbToLab(r: number, g: number, b: number): Lab {
   };
 }
 
-function labToRgb(lab: Lab) {
-  const fy = (lab.l + 16) / 116;
-  const fx = lab.a / 500 + fy;
-  const fz = fy - lab.b / 200;
-  const inversePivot = (value: number) => {
-    const cube = value * value * value;
-    return cube > 0.008856 ? cube : (value - 16 / 116) / 7.787;
-  };
-
-  const x = 0.95047 * inversePivot(fx);
-  const y = inversePivot(fy);
-  const z = 1.08883 * inversePivot(fz);
-  let red = x * 3.2406 + y * -1.5372 + z * -0.4986;
-  let green = x * -0.9689 + y * 1.8758 + z * 0.0415;
-  let blue = x * 0.0557 + y * -0.204 + z * 1.057;
-  const gamma = (value: number) =>
-    255 * (value <= 0.0031308 ? 12.92 * value : 1.055 * Math.pow(value, 1 / 2.4) - 0.055);
-
-  red = gamma(red);
-  green = gamma(green);
-  blue = gamma(blue);
-  return { r: clampByte(red), g: clampByte(green), b: clampByte(blue) };
-}
-
 function labDistance(left: Lab, right: Lab) {
   const dl = left.l - right.l;
   const da = left.a - right.a;
   const db = left.b - right.b;
   return dl * dl + da * da + db * db;
 }
+
+function hexToRgb(hex: string) {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+const MARD_COLORS: MardLabColor[] = MARD_221.map((color) => {
+  const rgb = hexToRgb(color.hex);
+  return {
+    ...color,
+    ...rgb,
+    lab: rgbToLab(rgb.r, rgb.g, rgb.b),
+  };
+});
 
 function smoothPixels(
   rgba: Uint8ClampedArray,
@@ -232,6 +237,63 @@ function buildCentroids(samples: Sample[], requestedColors: number) {
   return centroids;
 }
 
+function nearestUnusedMard(target: Lab, usedCodes: Set<string>) {
+  let best = MARD_COLORS[0];
+  let bestDistance = Infinity;
+  for (const color of MARD_COLORS) {
+    if (usedCodes.has(color.code)) continue;
+    const distance = labDistance(target, color.lab);
+    if (distance < bestDistance) {
+      best = color;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function snapCentroidsToMard(centroids: Lab[], samples: Sample[]) {
+  let usedCodes = new Set<string>();
+  let selected = centroids.map((centroid) => {
+    const color = nearestUnusedMard(centroid, usedCodes);
+    usedCodes.add(color.code);
+    return color;
+  });
+
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const sums = selected.map(() => ({ l: 0, a: 0, b: 0, weight: 0 }));
+    for (const sample of samples) {
+      let bestIndex = 0;
+      let bestDistance = Infinity;
+      selected.forEach((color, index) => {
+        const distance = labDistance(sample, color.lab);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = index;
+        }
+      });
+      const sum = sums[bestIndex];
+      sum.l += sample.l * sample.weight;
+      sum.a += sample.a * sample.weight;
+      sum.b += sample.b * sample.weight;
+      sum.weight += sample.weight;
+    }
+
+    usedCodes = new Set<string>();
+    const next = sums.map((sum, index) => {
+      const target = sum.weight
+        ? { l: sum.l / sum.weight, a: sum.a / sum.weight, b: sum.b / sum.weight }
+        : selected[index].lab;
+      const color = nearestUnusedMard(target, usedCodes);
+      usedCodes.add(color.code);
+      return color;
+    });
+    if (next.every((color, index) => color.code === selected[index].code)) break;
+    selected = next;
+  }
+
+  return selected;
+}
+
 function removeSmallIslands(
   labels: number[],
   mask: Uint8Array,
@@ -310,12 +372,6 @@ function removeSmallIslands(
   return output;
 }
 
-function toHex(r: number, g: number, b: number) {
-  return `#${[r, g, b]
-    .map((value) => clampByte(value).toString(16).padStart(2, "0"))
-    .join("")}`.toUpperCase();
-}
-
 export function pixelize(
   rgba: Uint8ClampedArray,
   width: number,
@@ -330,6 +386,7 @@ export function pixelize(
   }
 
   const centroids = buildCentroids(samples, maxColors);
+  const selectedColors = snapCentroidsToMard(centroids, samples);
   let labels = Array(width * height).fill(-1);
   for (let index = 0; index < labels.length; index += 1) {
     if (!mask[index]) continue;
@@ -340,11 +397,11 @@ export function pixelize(
     );
     let bestIndex = 0;
     let bestDistance = Infinity;
-    centroids.forEach((centroid, centroidIndex) => {
-      const distance = labDistance(lab, centroid);
+    selectedColors.forEach((color, colorIndex) => {
+      const distance = labDistance(lab, color.lab);
       if (distance < bestDistance) {
         bestDistance = distance;
-        bestIndex = centroidIndex;
+        bestIndex = colorIndex;
       }
     });
     labels[index] = bestIndex;
@@ -352,17 +409,9 @@ export function pixelize(
 
   labels = removeSmallIslands(labels, mask, width, height, cleanupStrength);
 
-  const sums = centroids.map(() => ({ l: 0, a: 0, b: 0, count: 0 }));
+  const sums = selectedColors.map(() => ({ count: 0 }));
   labels.forEach((label, index) => {
     if (label < 0) return;
-    const lab = rgbToLab(
-      pixels[index * 3],
-      pixels[index * 3 + 1],
-      pixels[index * 3 + 2],
-    );
-    sums[label].l += lab.l;
-    sums[label].a += lab.a;
-    sums[label].b += lab.b;
     sums[label].count += 1;
   });
 
@@ -373,12 +422,15 @@ export function pixelize(
   const remap = new Map(active.map((entry, index) => [entry.oldIndex, index]));
   labels = labels.map((label) => (label < 0 ? -1 : (remap.get(label) ?? -1)));
   const palette = active.map((sum) => {
-    const rgb = labToRgb({
-      l: sum.l / sum.count,
-      a: sum.a / sum.count,
-      b: sum.b / sum.count,
-    });
-    return { ...rgb, hex: toHex(rgb.r, rgb.g, rgb.b), count: sum.count };
+    const color = selectedColors[sum.oldIndex];
+    return {
+      code: color.code,
+      hex: color.hex,
+      r: color.r,
+      g: color.g,
+      b: color.b,
+      count: sum.count,
+    };
   });
 
   return {
