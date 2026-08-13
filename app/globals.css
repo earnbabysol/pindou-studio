@@ -542,6 +542,19 @@ input[type="range"] {
   font-size: 9px;
 }
 
+.annotation-field {
+  margin-top: 22px;
+  border-top: 1px solid #ded9cf;
+  padding-top: 18px;
+}
+
+.field-hint {
+  margin: 0;
+  color: #85827a;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
 .preview-panel {
   min-width: 0;
   display: flex;
@@ -810,6 +823,7 @@ input[type="range"] {
   color: var(--muted);
   font-family: var(--font-geist-mono), monospace;
   font-size: 9px;
+  white-space: nowrap;
 }
 
 .palette-list {

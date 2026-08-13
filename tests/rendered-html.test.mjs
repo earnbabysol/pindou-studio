@@ -36,13 +36,16 @@ test("server-renders the finished 拼豆稿 tool", async () => {
   assert.match(html, /选择图片/);
   assert.match(html, /104(?:<!-- -->)? × (?:<!-- -->)?104/);
   assert.match(html, /90(?:<!-- -->)? × (?:<!-- -->)?40/);
+  assert.match(html, /MARD 221/);
+  assert.match(html, /逐格 MARD 色号/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
 test("ships the pixel conversion engine and social preview", async () => {
-  const [page, engine, packageJson, socialCard] = await Promise.all([
+  const [page, engine, mardPalette, packageJson, socialCard] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/pixelize.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/mard-palette.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     stat(new URL("../public/og.png", import.meta.url)),
   ]);
@@ -52,9 +55,17 @@ test("ships the pixel conversion engine and social preview", async () => {
   assert.match(page, /useState\(16\)/);
   assert.match(page, /downloadPixelArt/);
   assert.match(page, /downloadInventory/);
+  assert.match(page, /function drawPatternSheet/);
+  assert.match(page, /showBeadCodes/);
+  assert.match(page, /MARD色号,数量（颗）/);
+  assert.doesNotMatch(page, /colorCode|色号,HEX|<strong>\{color\.hex\}<\/strong>/);
   assert.match(engine, /function smoothPixels/);
   assert.match(engine, /function removeSmallIslands/);
+  assert.match(engine, /function snapCentroidsToMard/);
   assert.match(engine, /export function pixelize/);
+  const mardEntries = [...mardPalette.matchAll(/\b([A-HM]\d+):([0-9A-F]{6})\b/g)];
+  assert.equal(mardEntries.length, 221);
+  assert.equal(new Set(mardEntries.map((entry) => entry[1])).size, 221);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.ok(socialCard.size > 100_000);
 

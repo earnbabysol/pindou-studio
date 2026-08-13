@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 const title = "拼豆稿｜图片转拼豆像素画";
-const description = "上传图片，自定义底板、画面比例与颜色数量，生成色块干净的拼豆像素稿和配色用量表。";
+const description = "上传图片，匹配 MARD 221 色号，生成带行列号、逐格色号和用量清单的拼豆图纸。";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
