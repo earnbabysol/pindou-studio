@@ -124,7 +124,7 @@ function drawCover(factory: PdfCanvasFactory, options: PatternPdfOptions) {
   const notes = [
     modeText,
     options.showBeadCodes ? "每格标注 MARD 色号" : "每格仅显示颜色",
-    "104 底板按 52 × 52 分为四区",
+    options.boardSize === 104 ? "104 底板按 52 × 52 分为四区" : "52 底板为一个完整制作区",
     "红色虚线表示底板分区边界",
   ];
   notes.forEach((note, index) => {
