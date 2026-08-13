@@ -37,7 +37,10 @@ test("server-renders the finished 拼豆稿 tool", async () => {
   assert.match(html, /104(?:<!-- -->)? × (?:<!-- -->)?104/);
   assert.match(html, /90(?:<!-- -->)? × (?:<!-- -->)?40/);
   assert.match(html, /MARD 221/);
-  assert.match(html, /逐格 MARD 色号/);
+  assert.match(html, /手动精修/);
+  assert.match(html, />制作<\/button>/);
+  assert.match(html, /管理 MARD 库存/);
+  assert.match(html, /下载 A4 PDF 图纸/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -55,9 +58,13 @@ test("ships the pixel conversion engine and social preview", async () => {
   assert.match(page, /useState\(16\)/);
   assert.match(page, /downloadPixelArt/);
   assert.match(page, /downloadInventory/);
+  assert.match(page, /downloadPdf/);
+  assert.match(page, /saveLocalProject/);
+  assert.match(page, /floodFillCodes/);
+  assert.match(page, /restrictToInventory/);
   assert.match(page, /function drawPatternSheet/);
   assert.match(page, /showBeadCodes/);
-  assert.match(page, /MARD色号,数量（颗）/);
+  assert.match(page, /MARD色号,需要（颗）,库存（颗）,缺少（颗）,建议替代色号/);
   assert.doesNotMatch(page, /colorCode|色号,HEX|<strong>\{color\.hex\}<\/strong>/);
   assert.match(engine, /function smoothPixels/);
   assert.match(engine, /function removeSmallIslands/);
@@ -79,7 +86,7 @@ test("builds a self-contained GitHub Pages entry", async () => {
     "utf8",
   );
 
-  assert.match(staticHtml, /<title>拼豆稿｜图片转拼豆像素画<\/title>/);
+  assert.match(staticHtml, /<title>拼豆稿｜MARD 拼豆设计与制作工具<\/title>/);
   assert.match(staticHtml, /\/pindou-studio\/assets\/[^"']+\.js/);
   assert.match(staticHtml, /\/pindou-studio\/assets\/[^"']+\.css/);
   assert.doesNotMatch(staticHtml, /chatgpt\.site/);

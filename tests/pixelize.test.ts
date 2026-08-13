@@ -48,3 +48,18 @@ test("requested color limit remains strict after MARD matching", () => {
 
   assert.ok(pixelize(rgba, 6, 6, 2, 0).palette.length <= 2);
 });
+
+test("inventory-restricted conversion uses only owned MARD codes", () => {
+  const rgba = new Uint8ClampedArray(8 * 8 * 4);
+  for (let index = 0; index < 64; index += 1) {
+    rgba[index * 4] = (index * 71) % 256;
+    rgba[index * 4 + 1] = (index * 37) % 256;
+    rgba[index * 4 + 2] = (index * 19) % 256;
+    rgba[index * 4 + 3] = 255;
+  }
+  const owned = ["A4", "B5", "C8", "H7"];
+  const result = pixelize(rgba, 8, 8, 16, 1, { allowedCodes: owned, dither: true });
+  assert.ok(result.palette.length <= owned.length);
+  assert.ok(result.palette.every((color) => owned.includes(color.code)));
+  assert.equal(result.beadCount, 64);
+});

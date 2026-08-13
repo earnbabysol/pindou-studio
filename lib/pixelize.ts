@@ -1,4 +1,4 @@
-import { MARD_221 } from "./mard-palette";
+import { MARD_COLORS as MARD_RGB_COLORS } from "./mard-palette";
 
 export type PaletteColor = {
   code: string;
@@ -26,6 +26,11 @@ type MardLabColor = {
   g: number;
   b: number;
   lab: Lab;
+};
+
+export type PixelizeOptions = {
+  allowedCodes?: Iterable<string>;
+  dither?: boolean;
 };
 
 const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
@@ -64,20 +69,10 @@ function labDistance(left: Lab, right: Lab) {
   return dl * dl + da * da + db * db;
 }
 
-function hexToRgb(hex: string) {
-  const value = Number.parseInt(hex.slice(1), 16);
-  return {
-    r: (value >> 16) & 255,
-    g: (value >> 8) & 255,
-    b: value & 255,
-  };
-}
-
-const MARD_COLORS: MardLabColor[] = MARD_221.map((color) => {
-  const rgb = hexToRgb(color.hex);
+const MARD_COLORS: MardLabColor[] = MARD_RGB_COLORS.map((color) => {
+  const rgb = color;
   return {
     ...color,
-    ...rgb,
     lab: rgbToLab(rgb.r, rgb.g, rgb.b),
   };
 });
@@ -237,10 +232,14 @@ function buildCentroids(samples: Sample[], requestedColors: number) {
   return centroids;
 }
 
-function nearestUnusedMard(target: Lab, usedCodes: Set<string>) {
-  let best = MARD_COLORS[0];
+function nearestUnusedMard(
+  target: Lab,
+  usedCodes: Set<string>,
+  candidates: MardLabColor[],
+) {
+  let best = candidates[0];
   let bestDistance = Infinity;
-  for (const color of MARD_COLORS) {
+  for (const color of candidates) {
     if (usedCodes.has(color.code)) continue;
     const distance = labDistance(target, color.lab);
     if (distance < bestDistance) {
@@ -251,10 +250,14 @@ function nearestUnusedMard(target: Lab, usedCodes: Set<string>) {
   return best;
 }
 
-function snapCentroidsToMard(centroids: Lab[], samples: Sample[]) {
+function snapCentroidsToMard(
+  centroids: Lab[],
+  samples: Sample[],
+  candidates: MardLabColor[],
+) {
   let usedCodes = new Set<string>();
   let selected = centroids.map((centroid) => {
-    const color = nearestUnusedMard(centroid, usedCodes);
+    const color = nearestUnusedMard(centroid, usedCodes, candidates);
     usedCodes.add(color.code);
     return color;
   });
@@ -283,7 +286,7 @@ function snapCentroidsToMard(centroids: Lab[], samples: Sample[]) {
       const target = sum.weight
         ? { l: sum.l / sum.weight, a: sum.a / sum.weight, b: sum.b / sum.weight }
         : selected[index].lab;
-      const color = nearestUnusedMard(target, usedCodes);
+      const color = nearestUnusedMard(target, usedCodes, candidates);
       usedCodes.add(color.code);
       return color;
     });
@@ -378,6 +381,7 @@ export function pixelize(
   height: number,
   maxColors: number,
   cleanupStrength: number,
+  options: PixelizeOptions = {},
 ): PixelResult {
   const { pixels, mask } = smoothPixels(rgba, width, height, cleanupStrength);
   const samples = makeHistogram(pixels, mask);
@@ -385,32 +389,60 @@ export function pixelize(
     return { width, height, labels: Array(width * height).fill(-1), palette: [], beadCount: 0 };
   }
 
-  const centroids = buildCentroids(samples, maxColors);
-  const selectedColors = snapCentroidsToMard(centroids, samples);
+  const allowedCodes = options.allowedCodes ? new Set(options.allowedCodes) : null;
+  const candidates = allowedCodes
+    ? MARD_COLORS.filter((color) => allowedCodes.has(color.code))
+    : MARD_COLORS;
+  if (!candidates.length) {
+    return { width, height, labels: Array(width * height).fill(-1), palette: [], beadCount: 0 };
+  }
+
+  const colorLimit = Math.min(Math.max(1, maxColors), candidates.length);
+  const centroids = buildCentroids(samples, colorLimit);
+  const selectedColors = snapCentroidsToMard(centroids, samples, candidates);
   let labels = Array(width * height).fill(-1);
-  for (let index = 0; index < labels.length; index += 1) {
-    if (!mask[index]) continue;
-    const lab = rgbToLab(
-      pixels[index * 3],
-      pixels[index * 3 + 1],
-      pixels[index * 3 + 2],
-    );
-    let bestIndex = 0;
-    let bestDistance = Infinity;
-    selectedColors.forEach((color, colorIndex) => {
-      const distance = labDistance(lab, color.lab);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestIndex = colorIndex;
-      }
-    });
-    labels[index] = bestIndex;
+  const working = new Float32Array(pixels);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      if (!mask[index]) continue;
+      const red = clampByte(working[index * 3]);
+      const green = clampByte(working[index * 3 + 1]);
+      const blue = clampByte(working[index * 3 + 2]);
+      const lab = rgbToLab(red, green, blue);
+      let bestIndex = 0;
+      let bestDistance = Infinity;
+      selectedColors.forEach((color, colorIndex) => {
+        const distance = labDistance(lab, color.lab);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = colorIndex;
+        }
+      });
+      labels[index] = bestIndex;
+
+      if (!options.dither) continue;
+      const selected = selectedColors[bestIndex];
+      const error = [red - selected.r, green - selected.g, blue - selected.b];
+      const diffuse = (nextX: number, nextY: number, weight: number) => {
+        if (nextX < 0 || nextX >= width || nextY < 0 || nextY >= height) return;
+        const nextIndex = nextY * width + nextX;
+        if (!mask[nextIndex]) return;
+        working[nextIndex * 3] += error[0] * weight;
+        working[nextIndex * 3 + 1] += error[1] * weight;
+        working[nextIndex * 3 + 2] += error[2] * weight;
+      };
+      diffuse(x + 1, y, 7 / 16);
+      diffuse(x - 1, y + 1, 3 / 16);
+      diffuse(x, y + 1, 5 / 16);
+      diffuse(x + 1, y + 1, 1 / 16);
+    }
   }
 
   labels = removeSmallIslands(labels, mask, width, height, cleanupStrength);
 
   const sums = selectedColors.map(() => ({ count: 0 }));
-  labels.forEach((label, index) => {
+  labels.forEach((label) => {
     if (label < 0) return;
     sums[label].count += 1;
   });

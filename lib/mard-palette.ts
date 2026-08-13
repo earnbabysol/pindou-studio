@@ -3,6 +3,12 @@ export type MardColorDefinition = {
   hex: `#${string}`;
 };
 
+export type MardColor = MardColorDefinition & {
+  r: number;
+  g: number;
+  b: number;
+};
+
 // MARD standard 221-color range (A-H and M). Screen values are approximate.
 // Reference: https://www.pixel-beads.com/mard-bead-color-chart
 const MARD_221_DATA = `
@@ -23,3 +29,45 @@ export const MARD_221: MardColorDefinition[] = MARD_221_DATA.trim()
     const [code, value] = entry.split(":");
     return { code, hex: `#${value}` as `#${string}` };
   });
+
+export function hexToRgb(hex: string) {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+export const MARD_COLORS: MardColor[] = MARD_221.map((color) => ({
+  ...color,
+  ...hexToRgb(color.hex),
+}));
+
+export const MARD_BY_CODE = new Map(MARD_COLORS.map((color) => [color.code, color]));
+
+function perceptualRgbDistance(left: MardColor, right: MardColor) {
+  const redMean = (left.r + right.r) / 2;
+  const red = left.r - right.r;
+  const green = left.g - right.g;
+  const blue = left.b - right.b;
+  return (
+    (2 + redMean / 256) * red * red +
+    4 * green * green +
+    (2 + (255 - redMean) / 256) * blue * blue
+  );
+}
+
+export function nearestMardCode(code: string, candidateCodes?: Iterable<string>) {
+  const source = MARD_BY_CODE.get(code);
+  if (!source) return null;
+  const candidates = candidateCodes
+    ? Array.from(candidateCodes, (candidate) => MARD_BY_CODE.get(candidate)).filter(
+        (color): color is MardColor => Boolean(color && color.code !== code),
+      )
+    : MARD_COLORS.filter((color) => color.code !== code);
+  if (!candidates.length) return null;
+  return candidates.reduce((best, color) =>
+    perceptualRgbDistance(source, color) < perceptualRgbDistance(source, best) ? color : best,
+  );
+}
